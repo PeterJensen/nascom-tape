@@ -23,6 +23,13 @@ class Params:
     self.outputFilename = sys.argv[2]
 
 class InputData:
+  @staticmethod
+  def computeChecksum(data):
+    checksum = 0
+    for b in data:
+      checksum += b
+    return checksum & 0xff
+    
   def __init__(self):
     self.startAddress = None
     self.data = bytearray()
