@@ -23,6 +23,13 @@ class Params:
     self.outputFilename = sys.argv[2]
 
 class InputData:
+  @staticmethod
+  def computeChecksum(data):
+    checksum = 0
+    for b in data:
+      checksum += b
+    return checksum & 0xff
+    
   def __init__(self):
     self.startAddress = None
     self.data = bytearray()
@@ -52,13 +59,19 @@ class InputData:
         if self.startAddress == None:
           self.startAddress = content[i] + 256*content[i+1]
         blockLength = content[i+2]
+        blockCount  = content[i+3]
         if blockLength == 0:
           blockLength = 256
         i += 5 # skip over block header
+        checksum = self.computeChecksum(content[i:i+blockLength])
         self.data.extend(content[i:i+blockLength])
         i += blockLength
+        if checksum != content[i]:
+          print(f'Unexpected checksum in block: {blockCount}. {checksum:02X} != {content[i]:02X}')
         i += 1 # skip over data checksum
         i += 10 # skip over block end marker
+        if blockCount == 0:
+          break
 
 class CasFile:
   class FileHeader:
@@ -149,7 +162,8 @@ class NasFile:
       enc.append(ord(' '))
       checksum = self.computeChecksum()
       enc.extend(bytes(f'{checksum:02X}', 'utf-8'))
-      enc.extend(b'\x08\x08\x0a')
+#      enc.extend(b'\x08\x08\x0a')
+      enc.extend(b'\x08\x08\x0d\x0a')
       return enc
 
   def isValid(filename):
@@ -176,7 +190,10 @@ class NasFile:
     lineDataSize = 8
     addr = self.inputData.startAddress
     while di < len(self.inputData.data):
-      line = self.Line(addr, self.inputData.data[di:di+lineDataSize])
+      lineData = self.inputData.data[di:di+lineDataSize]
+      while len(lineData) < lineDataSize:
+        lineData.append(0x00)
+      line = self.Line(addr, lineData)
       self.file.write(line.encode())
       di += lineDataSize
       addr += lineDataSize
