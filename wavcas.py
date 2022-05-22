@@ -71,7 +71,7 @@ where:
   -?    Prints this information
   -v    Turns on verbose mode
   -s    Turns on silent mode
-  -p n  Plots the input wav data for bit n. n can be specified as hex (0xnn) or decimal
+  -p n  Plots the input wav data for byte n. n can be specified as hex (0xnn) or decimal
 ''')
 
   @staticmethod
@@ -323,7 +323,7 @@ class WavData:
     self.framesPerBit = framesPerBit
     Log.info(f'Frames per bit after {sampleCount} samples: {framesPerBit:.4f}. ' +
             f'Last sample at: {sampleTime:.5f}s. ' +
-            f'Real baud rate: {int(2*self.wavFile.frameRate/framesPerBit)}.')
+            f'Real baud rate: {int(self.wavFile.frameRate/framesPerBit)}.')
     firstStartBit = self._findNextZeroBit(self.wavFile.frames, 0, framesPerBit)
     Log.progress("Finding all start bits")
     startPositions = self._findStartPositions(self.wavFile.frames, firstStartBit, framesPerBit)
