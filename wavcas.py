@@ -219,6 +219,8 @@ class WavData:
     crossIndex, _, crossDir = cls._getNextZeroCross(trimmedFrames, 0)
     if crossDir == crossUp:
       crossIndex2, _, crossDir = cls._getNextZeroCross(trimmedFrames, crossIndex)
+      if crossIndex2 == None:
+        return False
       framesInHalfCycle = crossIndex2 - crossIndex
       return abs(framesInHalfCycle - len(bitFrames)/2) < halfCycleMargin
     middleIndex = round(len(trimmedFrames)/2)
