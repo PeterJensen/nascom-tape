@@ -2,7 +2,7 @@
 #
 # Convert .wav to .cas
 #
-# Usage: caswav <input-file> <output-file>
+# Usage: wavcas.py <input-file> <output-file>
 #
 # Wav file (unsigned 8 bit samples):
 #  0: 1 cycle of 1200Hz
