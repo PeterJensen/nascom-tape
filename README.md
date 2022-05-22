@@ -57,5 +57,15 @@ $ python nascas.py BLS-maanelander.cas BLS-maanelander.nas
 Converting CAS to NAS
 ```
 
+## Testing
 
+The generated .cas files can be tested in the web-base simulator available here: [Virtual Nascom](https://PeterJensen.github.io/virtual-nascom/virtual-nascom.html).
 
+You'll need to pick the generated .cas file as tape input.  Issue the 'R' command to simulate reading it from tape, and start executing from address 0x1000 with the 'E1000' command.
+
+The BLS Super Maanelander game is awesome!
+
+Here's a couple of screenshots from the simulator
+
+![Start Super Maanelander](images/maanelander-1.png)
+![Finish Super Maanelander](images/maanelander-2.png)
