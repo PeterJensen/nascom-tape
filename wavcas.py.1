@@ -1,0 +1,328 @@
+# Author: Peter Jensen
+#
+# Convert .wav to .cas
+#
+# Usage: caswav <input-file> <output-file>
+#
+# Wav file (unsigned 8 bit samples):
+#  0: 1 cycle of 1200Hz
+#  1: 2 cycles of 2400Hz
+#  A byte is encoded as (18N1):
+#    0:     start-bit
+#    d0-d7: data bits
+#    1:     stop-bit
+
+import sys
+import wave
+import matplotlib.pyplot as plt
+import math
+
+# Poor man's enum
+crossUp   = 1
+crossDown = 2
+
+def error(msg):
+  print("ERROR: " + msg)
+  sys.exit(1)
+
+class Config:
+  baseFreq    = 2400  # frequency of 1-bit
+  bitsPerByte = 10    # 1 start-bit, 8 data bits, 1 stop-bit
+  negPosStart = True  # is the start of a bit going negative->positive?
+
+class Params:
+  inputFilename  = ''
+  outputFilename = ''
+
+  @classmethod
+  def parse(cls):
+    if len(sys.argv) < 3:
+      print("Usage: " + sys.argv[0] + " <input file> <output file>")
+      error("Two parameters expected")
+    cls.inputFilename = sys.argv[1]
+    cls.outputFilename = sys.argv[2]
+
+notFoundCount = 0
+def findNextStartBit(allFrames, startPos, framesPerByte, frameRate, byteNum):
+  global notFoundCount
+  if startPos + framesPerByte >= len(allFrames):
+    return len(allFrames)
+  # start looking for the crossover negative->positive or vice versa as indicated by 'negPosStart'
+  # after theoretical frame. Search backwards from 1/4 cycle ahead of where it should be
+  framesPerBit         = framesPerByte/Config.bitsPerByte
+  margin               = round(framesPerBit/4)
+  bpExpected = round(startPos + framesPerByte)
+  bpMiddle = round(bpExpected + framesPerBit/2)
+  bpStart  = bpMiddle - margin
+  bpEnd    = bpMiddle + margin
+  if bpEnd >= len(allFrames):
+    return None
+  for fi in range(bpStart+1, bpEnd):
+    if Config.negPosStart and allFrames[fi-1] >= 0x80 and allFrames[fi] < 0x80:
+      return round(fi - framesPerBit/2)
+    elif not Config.negPosStart and allFrames[fi-1] < 0x80 and allFrames[fi] >= 0x80:
+      return round(fi - framesPerBit/2)
+  notFoundCount += 1
+  if notFoundCount < 10:
+    print(notFoundCount, "start-bit not found for: ", byteNum, bpExpected, bpExpected/frameRate)
+  return bpExpected
+
+def findStartPositions(allFrames, framesPerByte, frameRate):
+  startPositions = []
+  bitPos = 0
+  while bitPos < len(allFrames):
+    startPositions.append(bitPos)
+    bitPos = findNextStartBit(allFrames, bitPos, framesPerByte, frameRate, len(startPositions))
+    if bitPos == None:
+      break
+  return startPositions
+
+def isZero(frames):
+  # one crossing in the "middle" going up
+  crossUpCount   = 0
+  crossDownCount = 0
+  crossIndex     = 0
+  crossMid       = len(frames) // 2
+  crossMargin    = len(frames) // 6
+  trimCount      = 6
+
+  def log(reason):
+    None
+#    print(f'{reason:30s}', "dc:", crossDownCount, "uc:", crossUpCount, "ci:", crossIndex, "cm:", crossMargin)
+
+  for fi in range(trimCount,len(frames)-trimCount):
+    if frames[fi-1] < 0x80 and frames[fi] >= 0x80:
+      crossUpCount += 1
+      crossIndex = fi
+    if frames[fi-1] >= 0x80 and frames[fi] < 0x80:
+      crossDownCount += 1
+  if crossUpCount != 1:
+    log("upCount != 1")
+    return False
+  elif crossDownCount != 0:
+    log("downCount != 0")
+    return False
+  elif not crossIndex in range(crossMid - crossMargin, crossMid + crossMargin):
+    log("crossIndex out-of-range")
+    return False
+  return True
+
+def getBits(byteFrames):
+  framesPerBit     = len(byteFrames)/Config.bitsPerByte;
+  framesPerBitCeil = math.ceil(framesPerBit)
+  fi = 0
+  fiFloat = 0.0
+  bits = ''
+  bitPositions = []
+  while fi < len(byteFrames):
+    bitPositions.append(fi)
+    if isZero(byteFrames[fi:fi+framesPerBitCeil]):
+      bits += '0'
+    else:
+      bits += '1'
+    fiFloat += framesPerBit
+    fi = round(fiFloat)
+  bitPositions.append(len(byteFrames))
+  return bits, bitPositions
+
+def getNextZeroCross(frames, startFrame):
+  if startFrame == None or startFrame >= len(frames):
+    return None, None, None
+  fi  = startFrame
+  startVal = frames[startFrame]
+  maxSample = 0
+  fi += 1
+  while fi < len(frames):
+    if frames[fi-1] > 0x80 and frames[fi] <= 0x80:
+      return fi, maxSample, crossDown
+    elif frames[fi-1] < 0x80 and frames[fi] >= 0x80:
+      return fi, maxSample, crossUp
+    sample = abs(frames[fi] - 0x80)
+    if maxSample < sample:
+      maxSample = sample
+    fi += 1
+  return None, None, None
+
+def getFramesPerBit(frames, frameRate, startSec = 0.0):
+  expectedFramesPerBit = 2*frameRate/Config.baseFreq;
+  expectedFramesPerHalfBit = expectedFramesPerBit/2
+  margin = expectedFramesPerHalfBit/3
+  fi = round(startSec*frameRate)
+  sampleCount    = 0
+  sampleAcc      = 0
+  while True:
+    nextZero, maxSample, _ = getNextZeroCross(frames, fi)
+    if nextZero == None:
+      break
+    nFrames = nextZero - fi
+    if (abs(nFrames - expectedFramesPerHalfBit) < margin and
+        maxSample > 0x40):
+      sampleCount += 1
+      sampleAcc += nFrames
+    if sampleCount > 2000:
+      print("Sample time end: ", nextZero/frameRate)
+      break
+    fi = nextZero
+  framesPerBit   = 2*sampleAcc/sampleCount
+  return framesPerBit
+
+def findNextZeroBit(frames, startFrame, framesPerBit):
+  # find the next 3 zero crossings up->down->up
+  Found = False
+  fi = startFrame
+  marginBitFrames = 0.2  * framesPerBit
+  marginHalfPoint = 0.25 * framesPerBit
+  foundCount = 0
+  while fi != None and fi < len(frames):
+    crossIndex0, _, crossDir = getNextZeroCross(frames, fi)
+    if crossDir == crossUp:
+      crossIndex1, _, _ = getNextZeroCross(frames, crossIndex0)
+      if crossIndex1 == None:
+        return None
+      crossIndex2, _, _ = getNextZeroCross(frames, crossIndex1)
+      if crossIndex2 == None:
+        return None
+      nFrames = crossIndex2 - crossIndex0
+      if (abs(nFrames - framesPerBit) < marginBitFrames and
+          abs((crossIndex1 - crossIndex0) - (crossIndex2 - crossIndex1)) < marginHalfPoint):
+        foundCount += 1
+        return crossIndex0
+    fi = crossIndex0
+  return None
+
+def isZero2(bitFrames):
+  trimMargin   = 2
+  middleMargin = 4
+  halfCycleMargin = 3
+  trimmedFrames = bitFrames[trimMargin:len(bitFrames)-trimMargin]
+  crossIndex, _, crossDir = getNextZeroCross(trimmedFrames, 0)
+  if crossDir == crossUp:
+    crossIndex2, _, crossDir = getNextZeroCross(trimmedFrames, crossIndex)
+    framesInHalfCycle = crossIndex2 - crossIndex
+    return abs(framesInHalfCycle - len(bitFrames)/2) < halfCycleMargin
+  middleIndex = round(len(trimmedFrames)/2)
+#  print("middelIndex: ", middleIndex, "crossIndex: ", crossIndex, "crossDir: ", crossDir)
+  middleRange = range(middleIndex-middleMargin, middleIndex+middleMargin)
+  return crossIndex in middleRange
+
+def getBits2(byteFrames):
+  framesPerBit = len(byteFrames)/Config.bitsPerByte;
+  bi = 0
+  bits = ''
+  bitPositions = []
+  for bi in range(0, Config.bitsPerByte):
+    fi = round(bi*framesPerBit)
+    bitPositions.append(fi)
+    if isZero2(byteFrames[fi:round(fi+framesPerBit)]):
+      bits += '0'
+    else:
+      bits += '1'
+  bitPositions.append(len(byteFrames))
+  return bits, bitPositions
+
+def findStartPositions2(allFrames, startFrame, framesPerBit):
+  startPositions = []
+  bitPos = startFrame
+  while bitPos < len(allFrames):
+    startPositions.append(bitPos)
+    bitPos = findNextZeroBit(allFrames, round(bitPos + 0.90*Config.bitsPerByte*framesPerBit), framesPerBit)
+    if bitPos == None:
+      break
+  return startPositions
+
+def toByte(bits):
+  byteVal = 0
+  bitVal = 1
+  for b in bits[1:9]:
+    if b == '1':
+      byteVal += bitVal
+    bitVal = bitVal << 1
+  return byteVal
+
+def plotFrames(frames):
+  fig, ax = plt.subplots(1, 1, figsize=(10,5))
+  plt.grid(visible=True, which='both', axis='both')
+  intFrames = [int(v)-0x80 for v in frames]
+  framesPerBit = len(intFrames)/Config.bitsPerByte
+  ticks = [round(framesPerBit*i) for i in range(0, 11)]
+  ax.set_xticks(ticks)
+  plt.plot(intFrames)
+  plt.show()
+
+def convertToBytes(allFrames, startPositions, expectedFramesPerByte):
+  byteValues = bytearray()
+  for spi in range(0, len(startPositions)-1):
+    bpStart = startPositions[spi]
+    bpEnd   = startPositions[spi+1]
+    if bpEnd - bpStart > 1.5*expectedFramesPerByte:
+      break
+    byteFrames = allFrames[startPositions[spi]:startPositions[spi+1]]
+    if len(byteFrames) > 1.1*expectedFramesPerByte:
+      byteFrames = byteFrames[0:round(expectedFramesPerByte)]
+    bits, _ = getBits2(byteFrames)
+    if bits[0] != '0':
+      error(f'Start-bit is not zero at byte: {spi}')
+    if bits[9] != '1':
+      error(f'Stop-bit is not one at byte: {spi}')
+    byteValues.append(toByte(bits))
+  return byteValues
+
+def main():
+  Params.parse()
+  wf = wave.open(Params.inputFilename, 'rb')
+  wfParams = wf.getparams()
+  print(wfParams)
+  allFrames = wf.readframes(wfParams.nframes)
+  framesPerBit = getFramesPerBit(allFrames, wfParams.framerate)
+  startBit0 = findNextZeroBit(allFrames, 0, framesPerBit)
+#  startBit1 = findNextZeroBit(allFrames, round(startBit0 + 9.5*framesPerBit), framesPerBit)
+#  startBit2 = findNextZeroBit(allFrames, round(startBit1 + 9.5*framesPerBit), framesPerBit)
+#  startBit3 = findNextZeroBit(allFrames, round(startBit2 + 9.5*framesPerBit), framesPerBit)
+#  print("Byte 0: ", getBits2(allFrames[startBit0:startBit1]), startBit0, "Time: ", startBit0/wfParams.framerate)
+#  print("Byte 1: ", getBits2(allFrames[startBit1:startBit2]), startBit1, "Time: ", startBit1/wfParams.framerate)
+#  print("Byte 2: ", getBits2(allFrames[startBit2:startBit3]), startBit2, "Time: ", startBit2/wfParams.framerate)
+
+  expectedFramesPerByte = framesPerBit*Config.bitsPerByte
+
+#  plotFrames(allFrames[startBit2:startBit3])
+
+#  startPositions = findStartPositions(allFrames, Config.bitsPerByte*framesPerBit, wfParams.framerate)
+  startPositions = findStartPositions2(allFrames, startBit0, framesPerBit)
+  print("Number of bytes: ", len(startPositions))
+
+  allBytes = convertToBytes(allFrames, startPositions, expectedFramesPerByte)
+  print("Bytes read: ", len(allBytes))
+  casFile = open(Params.outputFilename, "wb")
+  casFile.write(allBytes)
+  casFile.close()
+  return
+
+  rng = range(0x892,0x893)
+#  rng = range(1086, 1087)
+
+  for bi in rng:
+    byteFrames = allFrames[startPositions[bi]:startPositions[bi+1]]
+    if len(byteFrames) > 1.1*expectedFramesPerByte:
+      # sometimes there are multiple stop bits for some reason
+      byteFrames = byteFrames[0:round(expectedFramesPerByte)]
+    bits, bitPos = getBits2(byteFrames)
+    print(bi, ": ", bits, f'{toByte(bits):02X}', bitPos, startPositions[bi]/wfParams.framerate)
+
+  fig, ax = plt.subplots(1, 1, figsize=(10,5))
+  plt.grid(visible=True, which='both', axis='both')
+  for b in rng:
+    startPos = startPositions[b]
+    endPos   = startPositions[b+1]
+    frames = allFrames[startPos:endPos]
+    if len(frames) > 1.1*expectedFramesPerByte:
+      frames = frames[0:round(expectedFramesPerByte)]
+    if len(rng) == 1:
+#      _, ticks = getBits(frames)
+      ticks = [round(i*(len(frames))/Config.bitsPerByte) for i in range(0, Config.bitsPerByte+1)]
+      ax.set_xticks(ticks)
+    intFrames = [int(v)-0x80 for v in frames]
+    plt.plot(intFrames)
+  plt.show()
+
+if __name__ == '__main__':
+  main()
