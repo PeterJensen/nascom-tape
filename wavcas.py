@@ -48,8 +48,8 @@ class Log:
 
 class Config:
   baseFreq       = 2400  # frequency of 1-bit
-  bitsPerByte    = 10    # 1 start-bit, 8 data bits, 1 stop-bit
   maxSampleCount = 4000  # max samples used to determine framesPerBit
+  minAmplitude   = 2
 
 class Params:
   inputFilename  = None
@@ -57,6 +57,9 @@ class Params:
   verbose        = False
   silent         = False
   plot           = None
+  dataBits       = 8
+  stopBits       = 1
+  bitsPerByte    = 1 + dataBits + stopBits
 
   @staticmethod
   def usage():
@@ -65,12 +68,13 @@ class Params:
 encoding of 18N1 (one '0' start bit, 8 data bits, and one '1' stop bit);
 
 Invocation:
-  wavcas.py [-?][-v][-s][-p n] <input file> <output file>
+  wavcas.py [-?][-v][-s][-p n][-t n] <input file> <output file>
 
 where:
   -?    Prints this information
   -v    Turns on verbose mode
   -s    Turns on silent mode
+  -t n  Number of stop bits (1 or 2). Default: 1
   -p n  Plots the input wav data for byte n. n can be specified as hex (0xnn) or decimal
 ''')
 
@@ -111,6 +115,14 @@ where:
         cls.plot = cls.toInt(sys.argv[pi])
         if cls.plot == None:
           cls.paramError("Illegal number syntax for -p parameter")
+      elif arg == '-t':
+        pi += 1
+        if pi >= len(sys.argv):
+          paramError('-t must be followed by a number (1 or 2')
+        cls.stopBits = cls.toInt(sys.argv[pi])
+        if cls.stopBits == None or cls.stopBits not in [1, 2]:
+          cls.paramError("Illegal value for -t parameter.  Must be 1 or 2")
+        cls.bitsPerByte = 1 + cls.dataBits + cls.stopBits
       else:
         if cls.inputFilename == None:
           cls.inputFilename = arg
@@ -194,8 +206,8 @@ class WavData:
     marginHalfPoint = 0.25 * framesPerBit
     foundCount = 0
     while fi != None and fi < len(frames):
-      crossIndex0, _, crossDir = cls._getNextZeroCross(frames, fi)
-      if crossDir == crossUp:
+      crossIndex0, maxSample, crossDir = cls._getNextZeroCross(frames, fi)
+      if crossDir == crossUp and maxSample > Config.minAmplitude:
         crossIndex1, _, _ = cls._getNextZeroCross(frames, crossIndex0)
         if crossIndex1 == None:
           return None
@@ -230,11 +242,11 @@ class WavData:
 
   @classmethod
   def _getBits(cls, byteFrames):
-    framesPerBit = len(byteFrames)/Config.bitsPerByte;
+    framesPerBit = len(byteFrames)/Params.bitsPerByte;
     bi = 0
     bits = ''
     bitPositions = []
-    for bi in range(0, Config.bitsPerByte):
+    for bi in range(0, Params.bitsPerByte):
       fi = round(bi*framesPerBit)
       bitPositions.append(fi)
       if cls._isZero(byteFrames[fi:round(fi+framesPerBit)]):
@@ -250,7 +262,7 @@ class WavData:
     bitPos = startFrame
     while bitPos < len(allFrames):
       startPositions.append(bitPos)
-      bitPos = cls._findNextZeroBit(allFrames, round(bitPos + 0.90*Config.bitsPerByte*framesPerBit), framesPerBit)
+      bitPos = cls._findNextZeroBit(allFrames, round(bitPos + 0.90*Params.bitsPerByte*framesPerBit), framesPerBit)
       if bitPos == None:
         break
     return startPositions
@@ -292,8 +304,8 @@ class WavData:
     fig, ax = plt.subplots(1, 1, figsize=(10,5))
     plt.grid(visible=True, which='both', axis='both')
     intFrames = [int(v)-0x80 for v in frames]
-    framesPerBit = len(intFrames)/Config.bitsPerByte
-    ticks = [round(framesPerBit*i) for i in range(0, Config.bitsPerByte+1)]
+    framesPerBit = len(intFrames)/Params.bitsPerByte
+    ticks = [round(framesPerBit*i) for i in range(0, Params.bitsPerByte+1)]
     ax.set_xticks(ticks)
     plt.plot(intFrames)
     plt.show()
@@ -307,7 +319,7 @@ class WavData:
     else:
       endFrame = self.startPositions[byteNum+1]
     byteFrames = self.wavFile.frames[startFrame:endFrame]
-    expectedFramesPerByte = self.framesPerBit*Config.bitsPerByte
+    expectedFramesPerByte = self.framesPerBit*Params.bitsPerByte
     if len(byteFrames) > 1.1*expectedFramesPerByte:
       # sometimes there are multiple stop bits for some reason
       byteFrames = byteFrames[0:round(expectedFramesPerByte)]
@@ -332,7 +344,7 @@ class WavData:
     Log.info(f'Found {len(startPositions)} start bits, ' +
              f'First: {self._timeStampOf(firstStartBit):.5f}s, ' +
              f'Last: {self._timeStampOf(lastStartBit):.5f}s')
-    expectedFramesPerByte = framesPerBit*Config.bitsPerByte
+    expectedFramesPerByte = framesPerBit*Params.bitsPerByte
     Log.progress('Converting bits to bytes')
     self.allBytes = self._convertToBytes(self.wavFile.frames, startPositions, expectedFramesPerByte)
     Log.info(f'Number of bytes: {len(self.allBytes)}')
