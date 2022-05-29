@@ -172,8 +172,8 @@ class NasFile:
     except:
       return False
     else:
-      firstLine = file.read(5 + 9*3 + 3)
-      syntaxRe = b'[0-9A-F]{4}( [0-9A-F][0-9A-F]){9}\x08\x08\x0a'
+      firstLine = file.read(4 + 9*3 + 4)
+      syntaxRe = b'[0-9A-F]{4}( [0-9A-F][0-9A-F]){9}\x08\x08[\x0d]\x0a'
       result = re.search(syntaxRe, firstLine)
       file.close()
       return result != None
