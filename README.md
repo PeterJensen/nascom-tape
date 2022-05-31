@@ -24,6 +24,10 @@ where:
   -?    Prints this information
   -v    Turns on verbose mode
   -s    Turns on silent mode
+  -o    Use offset adjust per bit
+  -n n  Noise reduction window size
+  -f n  Expected frames per bit
+  -t n  Number of stop bits (1 or 2). Default: 1
   -p n  Plots the input wav data for byte n. n can be specified as hex (0xnn) or decimal
 ```
 
