@@ -50,12 +50,14 @@ class Config:
   baseFreq       = 2400  # frequency of 1-bit
   maxSampleCount = 4000  # max samples used to determine framesPerBit
   minAmplitude   = 2
+  maxBitsPerByte = 13
 
 class Params:
   inputFilename   = None
   outputFilename  = None
   verbose         = False
   silent          = False
+  offsetAdjust    = False
   plot            = None
   framesPerBit    = None
   noiseWindow     = None
@@ -76,6 +78,7 @@ where:
   -?    Prints this information
   -v    Turns on verbose mode
   -s    Turns on silent mode
+  -o    Use offset adjust per bit
   -n n  Noise reduction window size
   -f n  Expected frames per bit
   -t n  Number of stop bits (1 or 2). Default: 1
@@ -112,6 +115,8 @@ where:
         cls.verbose = True
       elif arg == '-s':
         cls.silent = True
+      elif arg == '-o':
+        cls.offsetAdjust = True
       elif arg == "-n":
         pi += 1
         if pi >= len(sys.argv):
@@ -224,7 +229,6 @@ class WavData:
   def _findNextZeroBit(cls, frames, startFrame, framesPerBit):
     # find the next 3 zero crossings up->down->up
 
-    Found = False
     fi = startFrame
     marginBitFrames = 0.2  * framesPerBit
     marginHalfPoint = 0.3 * framesPerBit
@@ -239,7 +243,7 @@ class WavData:
           return None
         nFrames = crossIndex2 - crossIndex0
         if (abs(nFrames - framesPerBit) < marginBitFrames):
-#            abs((crossIndex1 - crossIndex0) - (crossIndex2 - crossIndex1)) < marginHalfPoint):
+#            and abs((crossIndex1 - crossIndex0) - (crossIndex2 - crossIndex1)) < marginHalfPoint):
           return crossIndex0
       fi = crossIndex0
     return None
@@ -278,6 +282,8 @@ class WavData:
 
   @classmethod
   def _isZero3(cls, bitFrames):
+    nFrames = len(bitFrames)
+    margin = 0.1*nFrames
     crossIndex0, _, _ = cls._getNextZeroCross(bitFrames, 0)
     if crossIndex0 == None:
       return True
@@ -288,11 +294,25 @@ class WavData:
     if crossIndex2 == None:
       return True
     crossIndex3, _, _ = cls._getNextZeroCross(bitFrames, crossIndex2)
-    if crossIndex3 != None:
+    if crossIndex3 != None and crossIndex3 - crossIndex2 > margin:
       return False
-    nFrames = len(bitFrames)
-    margin = 0.15*nFrames
-    return crossIndex0 < margin and (nFrames - crossIndex2) < margin
+    if (crossIndex1 - crossIndex0) > nFrames/2 - margin:
+      return True
+    if (crossIndex2 - crossIndex1) > nFrames/2 - margin:
+      return True
+    return False
+
+  @staticmethod
+  def _adjustOffset(bitFrames):
+    mean = 0
+    for bf in bitFrames:
+      mean += bf
+    mean = round(mean/len(bitFrames))
+    newBitFrames = bytearray(len(bitFrames))
+    offset = 0x80 - mean
+    for bi in range(0, len(bitFrames)):
+      newBitFrames[bi] = bitFrames[bi] + offset
+    return newBitFrames
 
   @classmethod
   def _getBits(cls, byteFrames, bitsInByte = None):
@@ -305,7 +325,11 @@ class WavData:
     for bi in range(0, bitsInByte):
       fi = round(bi*framesPerBit)
       bitPositions.append(fi)
-      if cls._isZero3(byteFrames[fi:round(fi+framesPerBit)]):
+      if Params.offsetAdjust:
+        bitFrames = cls._adjustOffset(byteFrames[fi:round(fi+framesPerBit)])
+      else:
+        bitFrames = byteFrames[fi:round(fi+framesPerBit)]
+      if cls._isZero3(bitFrames):
         bits += '0'
       else:
         bits += '1'
@@ -347,14 +371,11 @@ class WavData:
     for spi in range(0, len(self.startPositions)-1):
       bpStart = self.startPositions[spi]
       bpEnd   = self.startPositions[spi+1]
-#      if bpEnd - bpStart > 1.2*expectedFramesPerByte:
-#        Log.error(f'Too many frames ({bpEnd-bpStart}) for byte: {spi}')
-#        break
-#      byteFrames = self.frames[self.startPositions[spi]:self.startPositions[spi+1]]
-#      if len(self.frames) > 1.1*expectedFramesPerByte:
-#        byteFrames = byteFrames[0:round(expectedFramesPerByte)]
       byteFrames = self.frames[self.startPositions[spi]:self.startPositions[spi+1]]
-      bits, _ = self._getBits(byteFrames, self._getNumBitsInByte(byteFrames))
+      bitsInByte = self._getNumBitsInByte(byteFrames)
+      if bitsInByte > Config.maxBitsPerByte:
+        break
+      bits, _ = self._getBits(byteFrames, bitsInByte)
       if bits[0] != '0':
         Log.error(f'Start-bit is not zero at byte: {spi}')
       if bits[9] != '1':
@@ -367,9 +388,6 @@ class WavData:
     fig, ax = plt.subplots(1, 1, figsize=(10,5))
     plt.grid(visible=True, which='both', axis='both')
     intFrames = [int(v)-0x80 for v in frames]
-#    framesPerBit = len(intFrames)/Params.bitsPerByte
-#    ticks = [round(framesPerBit*i) for i in range(0, Params.bitsPerByte+1)]
-    bitPositions.append(len(frames))
     ax.set_xticks(bitPositions)
     plt.plot(intFrames)
     plt.show()
@@ -383,14 +401,19 @@ class WavData:
     else:
       endFrame = self.startPositions[byteNum+1]
     byteFrames = self.frames[startFrame:endFrame]
-#    expectedFramesPerByte = self.framesPerBit*Params.bitsPerByte
-#    if len(byteFrames) > 1.1*expectedFramesPerByte:
-#      # sometimes there are multiple stop bits for some reason
-#      byteFrames = byteFrames[0:round(expectedFramesPerByte)]
     bits, bitPositions = self._getBits(byteFrames, self._getNumBitsInByte(byteFrames))
+    if Params.offsetAdjust:
+      newByteFrames = bytearray()
+      for bi in range(1, len(bitPositions)):
+        newByteFrames.extend(self._adjustOffset(byteFrames[bitPositions[bi-1]:bitPositions[bi]]))
+      byteFrames = newByteFrames
     byteVal = self._toByte(bits)
     secs    = self._timeStampOf(startFrame)
     Log.info(f'{byteNum:04X}: {bits} {byteVal:02X}, sampled at: {secs:.5f}s')
+    if Params.verbose:
+      for bi in range(1, len(bitPositions)):
+        fvals = [f'{fv:02X}' for fv in byteFrames[bitPositions[bi-1]:bitPositions[bi]]]
+        Log.info(f'bit: {bi-1} : {fvals}')
     self.plotByteFrames(byteFrames, bitPositions)
 
   def reduceNoise(self):
