@@ -31,7 +31,10 @@ where:
   -p n  Plots the input wav data for byte n. n can be specified as hex (0xnn) or decimal
 ```
 
-**Example:**
+**Examples:**
+
+The first example doesn't require any special options for correct conversion
+
 ```
 $ python wavcas.py -p 500 BLS-maanelander.wav BLS-maanelander.cas
 Determining frames per bit...
@@ -45,6 +48,27 @@ Writing to output file: BLS-maanelander.cas...
 ```
 In addition to converting the .wav file, a plot of the wav data for byte 500 is shown.  This might come in handy if you have problems generating a valid .cas file.
 ![Byte plot](images/plot500.png)
+
+The second example requires use of noise reduction (-n 3) and offsetting (-o).  This recording was done using the built-in line (3.5mm jack).
+
+```
+$ python wavcas.py -n 3 -o BLS-nap-ram-v22.wav BLS-nap-ram-v22.cas
+Reducing noise...
+Determining frames per bit...
+Frames per bit after 4000 samples: 37.0635. Last sample at: 6.89293s. Real baud rate: 1189.
+Finding all start bits...
+Found 4688 start bits, First: 4.44252s, Last: 43.63129s
+Converting bits to bytes...
+Number of bytes: 4687
+Writing to output file: BLS-nap-ram-v22.cas...
+```
+
+The plot of the raw data before noise reduction and offsetting looks as follows.  Notice, that there are more zero crossings than expected, which confuses the rest of the algorithm for detecting the zeros and ones.  Also the negative and positive peaks for the 1-bit is not centered around the 0 y-axis value.
+![Noisy Plot](images/noise-before.png)
+
+The plot after noise reduction (-n 3) and offsetting looks as follows:
+![Noisy Plot](images/noise-after.png)
+
 ### nascas.py
 
 Converts between .nas and .cas formats.  The script converts both ways; if the input file is a .cas file a .nas file is produced and vice versa.

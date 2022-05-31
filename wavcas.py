@@ -311,7 +311,12 @@ class WavData:
     newBitFrames = bytearray(len(bitFrames))
     offset = 0x80 - mean
     for bi in range(0, len(bitFrames)):
-      newBitFrames[bi] = bitFrames[bi] + offset
+      newValue = bitFrames[bi] + offset
+      if newValue < 0:
+        newValue = 0
+      if newValue > 0xff:
+        newValue = 0xff
+      newBitFrames[bi] = newValue
     return newBitFrames
 
   @classmethod
