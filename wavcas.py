@@ -381,8 +381,10 @@ class WavData:
       byteFrames = self.frames[self.startPositions[spi]:self.startPositions[spi+1]]
       bitsInByte = self._getNumBitsInByte(byteFrames)
       if bitsInByte > Config.maxBitsPerByte:
-        continue
-      bits, _ = self._getBits(byteFrames, bitsInByte)
+        Log.error(f'Too many bits at byte: {spi} ({bitsInByte})')
+        bits = '0000000001'
+      else:
+        bits, _ = self._getBits(byteFrames, bitsInByte)
       if bits[0] != '0':
         Log.error(f'Start-bit is not zero at byte: {spi}')
       if bits[9] != '1':
