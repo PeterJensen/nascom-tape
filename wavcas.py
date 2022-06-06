@@ -231,7 +231,7 @@ class WavData:
     # find the next 3 zero crossings up->down->up
 
     fi = startFrame
-    marginBitFrames = 0.2  * framesPerBit
+    marginBitFrames = 0.3  * framesPerBit
     marginHalfPoint = 0.3 * framesPerBit
     while fi != None and fi < len(frames):
       crossIndex0, maxSample, crossDir = cls._getNextZeroCross(frames, fi)
