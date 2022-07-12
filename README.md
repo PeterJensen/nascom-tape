@@ -6,10 +6,11 @@ This repo contains python scripts that will convert between the various formats 
 - **`.wav`**: Standard .wav file format. Currently, 8-bit unsigned frame values are supported.  I've tested the script with 44.1kHz framerates.
 - **`.cas`**: Binary format with bytes stored in the NAS-SYS block format. See the description of the 'W' NAS-SYS command in the [NAS-SYS manual](http://nascomhomepage.com/pdf/Nassys3.pdf) for details.  The simulator is able to use the data from here for the NAS-SYS 'R' command.
 - **`.nas`**: Ascii format with lines containing a 4 digit hex address followed by 8 2 digit hex bytes.  Alternatively, this format also supports the output from the 'T' (tabulate) command.
+- **`.asm`**: Ascii text.  Suggested file extension for NAP assembly source text.
 
 ## Scripts
 
-There are currently two scripts:
+There are currently three scripts:
 
 ### wavcas.py
 
@@ -84,6 +85,27 @@ Invocation:
 $ python nascas.py BLS-maanelander.cas BLS-maanelander.nas
 Converting CAS to NAS
 ```
+
+### casasm.py
+
+Converts a .cas file, saved from NAP with the 'W' command, to ascii text.  Can be used to verify assembly source.
+
+Currently, the output goes to standard out.
+
+TODO: Make it possible to convert the other way, i.e. assembly source to the .cas format used by NAP.
+
+**Syntax:**
+```
+Invocation:
+   casasm.py <input-file>
+```
+
+**Example:**
+```
+$ python3 casasm.py skakur.cas >skakur.asm
+```
+
+For a complete example see: [Examples](examples)
 
 ## Testing
 
