@@ -9,6 +9,7 @@
 #
 import sys
 import re
+import os
 
 def error(msg):
   print("ERROR: " + msg)
@@ -16,11 +17,18 @@ def error(msg):
 
 class Params:
   def parse(self):
-    if len(sys.argv) < 3:
-      print("Usage: " + sys.argv[0] + " <input file> <output file>")
+    if len(sys.argv) < 2:
+      print("Usage: " + sys.argv[0] + " <input file> [<output file>]")
       error("Unexpected invocation")
     self.inputFilename = sys.argv[1]
-    self.outputFilename = sys.argv[2]
+    if len(sys.argv) == 3:
+      self.outputFilename = sys.argv[2]
+    else:
+      name, ext = os.path.splitext(os.path.basename(self.inputFilename))
+      if ext.lower() == '.cas':
+        self.outputFilename = name + '.nas'
+      else:
+        self.outputFilename = name + '.cas'
 
 class InputData:
   @staticmethod
@@ -172,8 +180,8 @@ class NasFile:
     except:
       return False
     else:
-      firstLine = file.read(5 + 9*3 + 3)
-      syntaxRe = b'[0-9A-F]{4}( [0-9A-F][0-9A-F]){9}\x08\x08\x0a'
+      firstLine = file.read(4 + 9*3 + 4)
+      syntaxRe = b'[0-9A-F]{4}( [0-9A-F][0-9A-F]){9}\x08\x08[\x0d]\x0a'
       result = re.search(syntaxRe, firstLine)
       file.close()
       return result != None
@@ -205,12 +213,12 @@ def main():
   params.parse()
   inputData = InputData()
   if CasFile.isValid(params.inputFilename):
-    print("Converting CAS to NAS")
+    print("Converting CAS to NAS: " + params.outputFilename)
     inputData.initWithCas(params.inputFilename)
     nasFile = NasFile(inputData, params.outputFilename)
     nasFile.write()
   elif NasFile.isValid(params.inputFilename):
-    print("Converting NAS to CAS")
+    print("Converting NAS to CAS: " + params.outputFilename)
     inputData.initWithNas(params.inputFilename)
     casFile = CasFile(inputData, params.outputFilename)
     casFile.write()
